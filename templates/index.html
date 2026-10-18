@@ -2433,7 +2433,7 @@
                 <i class="fa-solid fa-sun"></i>
             </button>
             <nav class="nav-links">
-                <a href="https://github.com/madhavgargagra/Lung-Cancer-Prediction" target="_blank" id="nav-github-link"><i class="fa-brands fa-github"></i> GitHub Repository</a>
+                <a href="https://github.com/madhavgargagra/Lung-Cancer-Prediction-and-web-application" target="_blank" id="nav-github-link"><i class="fa-brands fa-github"></i> GitHub Repository</a>
             </nav>
         </div>
     </header>
@@ -3271,7 +3271,7 @@
 
         // Dynamic API routing wrapper for cross-origin or local filesystem preview compatibility
         const getApiUrl = (path) => {
-            if (window.location.protocol === 'file:' || (window.location.port && window.location.port !== '5000')) {
+            if (window.location.protocol === 'file:') {
                 return `http://127.0.0.1:5000${path}`;
             }
             return path;

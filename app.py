@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import re
 from flask import Flask, request, jsonify, render_template
+from werkzeug.exceptions import BadRequest
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
@@ -73,30 +74,72 @@ def predict():
             'success': False, 
             'error': 'Model is not loaded. Check server logs.'
         }), 500
-        
+
+    # 1. Content-Type check (must be application/json)
+    if not request.is_json:
+        return jsonify({
+            'success': False,
+            'error': 'Unsupported Media Type: Request Content-Type must be application/json'
+        }), 415
+
+    # 2. JSON syntax and body decoding
     try:
-        data = request.json
-        if not data:
-            return jsonify({'success': False, 'error': 'No input data provided'}), 400
-            
-        # Extract features and format them in the exact order and names
-        input_data = {}
-        missing_features = []
-        for feature in FEATURE_NAMES:
-            if feature not in data:
-                # Age defaults to 40, Gender to 1, others to 1 (lowest scale)
-                if feature == 'Age':
-                    input_data[feature] = 40
-                elif feature == 'Gender':
-                    input_data[feature] = 1
-                else:
-                    input_data[feature] = 1
-                missing_features.append(feature)
+        data = request.get_json()
+    except BadRequest as e:
+        return jsonify({
+            'success': False,
+            'error': f'Malformed JSON: {str(e)}'
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to decode JSON payload: {str(e)}'
+        }), 400
+
+    # 3. Payload format check (must be a non-empty dictionary)
+    if not data or not isinstance(data, dict):
+        return jsonify({
+            'success': False,
+            'error': 'Invalid request body: Expected a non-empty JSON object containing feature values'
+        }), 400
+
+    # 4. Feature value parsing and validation
+    input_data = {}
+    missing_features = []
+    invalid_features = {}
+
+    for feature in FEATURE_NAMES:
+        if feature not in data:
+            # Age defaults to 40, Gender to 1, others to 1 (lowest scale)
+            if feature == 'Age':
+                input_data[feature] = 40.0
+            elif feature == 'Gender':
+                input_data[feature] = 1.0
             else:
-                input_data[feature] = float(data[feature])
-                
-        if missing_features:
-            print(f"Warning: Missing features defaulted: {missing_features}")
+                input_data[feature] = 1.0
+            missing_features.append(feature)
+        else:
+            val = data[feature]
+            try:
+                num_val = float(val)
+                if np.isnan(num_val) or np.isinf(num_val):
+                    invalid_features[feature] = f"Value '{val}' cannot be NaN or Infinite"
+                else:
+                    input_data[feature] = num_val
+            except (ValueError, TypeError):
+                invalid_features[feature] = f"Expected numeric value, received: '{val}'"
+
+    if invalid_features:
+        return jsonify({
+            'success': False,
+            'error': 'Invalid feature values provided.',
+            'details': invalid_features
+        }), 400
+
+    if missing_features:
+        print(f"Warning: Missing features defaulted: {missing_features}")
+
+    try:
             
         # Create a 1-row DataFrame matching the column list
         features_df = pd.DataFrame([input_data])[FEATURE_NAMES]
@@ -529,10 +572,19 @@ def upload_pdf():
             return jsonify({
                 'success': False,
                 'error': f"Failed to parse PDF file: {str(e)}"
-            }), 500
+            }), 400
     else:
         return jsonify({'success': False, 'error': 'Invalid file format. Please upload a PDF.'}), 400
 
+
+
+@app.route('/health')
+def health():
+    return jsonify({
+        'status': 'healthy',
+        'model_loaded': model is not None,
+        'scaler_loaded': scaler is not None
+    }), 200
 
 
 if __name__ == '__main__':
@@ -541,4 +593,7 @@ if __name__ == '__main__':
         load_assets()
     except Exception as e:
         print(f"Error reloading assets on main: {e}")
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    debug_mode = os.environ.get('FLASK_DEBUG', 'false').lower() in ('true', '1')
+    print(f"Starting server on 0.0.0.0:{port} (debug={debug_mode})...")
+    app.run(host='0.0.0.0', port=port, debug=debug_mode)
